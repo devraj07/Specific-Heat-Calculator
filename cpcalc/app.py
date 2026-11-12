@@ -14,6 +14,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cpcalc import database, examples, report, theory, workbook            # noqa: E402
+from cpcalc import mixtures as mx                                              # noqa: E402
 from cpcalc.constants import (STATES, ROLES, PURE_METHODS, MIX_MODELS, MIX_BASES, KINDS, PROPS, NEEDED,
                               PAIR_KEYS, ERRORS, WARNINGS)                     # noqa: E402
 from cpcalc.engine import run_case, run_sweep                                 # noqa: E402
@@ -102,50 +103,80 @@ def clean(v):
     return v
 
 
+def xlsx_bytes(case_, db_):
+    """The case as an .xlsx workbook (bytes) for the download buttons."""
+    fd, path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+    try:
+        workbook.save_case(case_, path, db_)
+        with open(path, "rb") as fh:
+            return fh.read()
+    finally:
+        os.remove(path)
+
+
+def load_xlsx(data):
+    """Read an uploaded .xlsx workbook into a case dictionary."""
+    fd, path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+    try:
+        with open(path, "wb") as fh:
+            fh.write(data)
+        return workbook.load_case(path)
+    finally:
+        os.remove(path)
+
+
 # ================================================================== sidebar
 with st.sidebar:
     st.markdown("## cpcalc")
-    st.caption("Apparent c_p and c_v of fluids, mixtures, suspensions and emulsions. V2")
+    st.caption("Apparent c_p and c_v of fluids, mixtures, suspensions and emulsions. V3")
     pick = st.selectbox("Start from an example", list(examples.EXAMPLES), index=2)
     if st.button("Load example", width="stretch"):
         load(examples.get(pick))
         st.rerun()
-    up = st.file_uploader("Open a workbook (.xlsx)", type=["xlsx"])
-    if up is not None and st.button("Load workbook", width="stretch"):
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp.write(up.getvalue())
-        try:
-            load(workbook.load_case(tmp.name))
-            st.rerun()
-        except CalcError as err:
-            for p in err.problems:
-                st.error(p["what"])
-    buf = io.BytesIO()
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        workbook.save_case(case, tmp.name, db)
-        buf.write(open(tmp.name, "rb").read())
-    st.download_button("Save case as Excel workbook", buf.getvalue(), file_name="cpcalc_case.xlsx", width="stretch")
+    with st.container(border=True):
+        st.markdown("**Save / open a case (Excel)**")
+        st.caption("A *case* is everything you set in tabs 1 and 2: temperature, pressure, phases, mixtures, "
+                   "your own values and pair parameters. Save it to continue later or to share it; open it here to restore it.")
+        up = st.file_uploader("Open a saved case (.xlsx)", type=["xlsx"],
+                              help="A workbook saved by this tool (or made from the blank template below).")
+        if up is not None and st.button("Load this case", width="stretch"):
+            try:
+                load(load_xlsx(up.getvalue()))
+                st.rerun()
+            except CalcError as err:
+                for p in err.problems:
+                    st.error(p["what"])
+        st.download_button("Download this case (.xlsx)", xlsx_bytes(case, db), file_name="cpcalc_case.xlsx", width="stretch",
+                           help="Everything currently in tabs 1 and 2, as an Excel workbook you can edit and open again.")
+        if "template_xlsx" not in ss:
+            ss.template_xlsx = xlsx_bytes(examples.get("Blank"), database.load_database())
+        st.download_button("Download a blank template (.xlsx)", ss.template_xlsx, file_name="cpcalc_blank_case.xlsx", width="stretch",
+                           help="An empty workbook with the six sheets (Setup, Phases, Mixtures, Data, Curves, Pairs) and drop-down lists.")
 
     st.divider()
-    st.markdown("**Add a compound**")
-    q = st.text_input("Name, formula or CAS number", placeholder="e.g. 1-butanol, 75-65-0, toluene")
-    c1, c2 = st.columns(2)
-    if c1.button("Find in thermo", width="stretch", disabled=not q,
-                 help="Looks the compound up in the open thermo/chemicals data bank and adds its data with sources"):
-        try:
-            from cpcalc.lookup import harvest
-            with st.spinner("Searching the data bank..."):
-                entry = harvest(q)
-            cid = q.strip().lower()
-            ss.extra[cid] = entry
-            st.success("Added '%s' (%s) with %d data records." % (entry["name"], entry["cas"], len(entry["records"])))
-        except LookupError as err:
-            st.error(str(err))
-    if c2.button("Add as my own", width="stretch", disabled=not q,
-                 help="Adds the name to the lists; then type its data in the Data tab"):
-        ss.custom.append(q.strip().lower())
-        st.success("'%s' added. Give its data in tab 2." % q.strip().lower())
-    st.caption("%d compounds in the database. Any other compound: add it above." % len(db["components"]))
+    with st.container(border=True):
+        st.markdown("**➕ Add a compound**")
+        st.caption("Compound not in the drop-down lists? Add it here, then pick it in the Phases or Mixtures tables.")
+        q = st.text_input("Name, formula or CAS number", placeholder="e.g. 1-butanol, 75-65-0, toluene")
+        c1, c2 = st.columns(2)
+        if c1.button("Find in thermo", width="stretch", disabled=not q,
+                     help="Looks the compound up in the open thermo/chemicals data bank and adds its data with sources"):
+            try:
+                from cpcalc.lookup import harvest
+                with st.spinner("Searching the data bank..."):
+                    entry = harvest(q)
+                cid = q.strip().lower()
+                ss.extra[cid] = entry
+                st.success("Added '%s' (%s) with %d data records." % (entry["name"], entry["cas"], len(entry["records"])))
+            except LookupError as err:
+                st.error(str(err))
+        if c2.button("Add as my own", width="stretch", disabled=not q,
+                     help="Adds the name to the lists; then type its data in the Data tab"):
+            ss.custom.append(q.strip().lower())
+            st.success("'%s' added. Give its data in tab 2." % q.strip().lower())
+        st.caption("%d compounds in the database. Any other compound: add it above." % len(db["components"]))
     with st.expander("Browse the database"):
         s = st.text_input("Search", key="dbsearch")
         rows = [{"id": cid, "name": e.get("name"), "CAS": e.get("cas"), "source": e.get("origin")}
@@ -199,6 +230,8 @@ with t1:
         p["method"] = p.get("method") or "auto"
     total = sum(float(p["amount"] or 0) for p in case["phases"])
     (st.caption if abs(total - 1) < 1e-3 else st.warning)("Sum of the amounts: %.5f (must be 1)" % total)
+    st.caption("Compound missing from the lists? Use **➕ Add a compound** in the sidebar on the left "
+               "(on a phone, open the sidebar with the arrow at the top left).")
 
     st.markdown("#### Mixtures")
     st.markdown("<span class='small'>A mixture is one phase made of several compounds. Give its components and "
@@ -235,8 +268,123 @@ with t1:
         ss.v += 1
         st.rerun()
 
+
+    # ---- Advanced: type the model parameters yourself (writes into the pair-parameter table below)
+    def pair_val(key, i, j, symmetric=False):
+        for p_ in case["pairs"]:
+            if p_["key"] == key and ((p_["i"] == i and p_["j"] == j) or (symmetric and p_["i"] == j and p_["j"] == i)):
+                return float(p_["value"])
+        return None
+
+    nrtl_slot = nrtl_pair = None
+    with st.expander("Advanced: type the model parameters yourself (NRTL, Margules, k_ij)"):
+        st.markdown("<span class='small'>Use this when your own source (a textbook, a paper, an assignment) gives the parameters. "
+                    "Fill the boxes and press <b>Apply</b>: the values go into the pair-parameter table below, which you can "
+                    "still edit. Values for a single compound (molar mass, density, c_p, T_c, ...) are typed in tab 2 <b>Data</b>, "
+                    "column <b>your value</b>; they always win over the database.</span>", unsafe_allow_html=True)
+        mix_list = list(case["mixtures"])
+        if not mix_list:
+            st.info("Add a mixture first (the box above), then come back here.")
+        else:
+            a_, b_ = st.columns(2)
+            mname = a_.selectbox("Mixture", mix_list, key="adv_mix_%d" % ss.v,
+                                 index=mix_list.index(ss.get("adv_sel")) if ss.get("adv_sel") in mix_list else 0)
+            ss.adv_sel = mname
+            mixture = case["mixtures"][mname]
+            adv_models = ["NRTL", "Margules", "Peng-Robinson k_ij"]
+            first = {"Margules": 1, "Peng-Robinson": 2, "ideal gas": 2}.get(mixture.get("model"), 0)
+            model = b_.radio("Parameters for", adv_models, index=first, horizontal=True, key="adv_model_%s_%d" % (mname, ss.v))
+            comps = [canon(db, c_) for c_ in mixture["components"]]
+            fk = "%s_%d" % (mname, ss.v)
+            if model != "Peng-Robinson k_ij" and len(comps) != 2:
+                st.info("%s is for a mixture of exactly two components (this one has %d). Use the Peng-Robinson k_ij option, "
+                        "or change the components in the mixture table above." % (model, len(comps)))
+            elif model == "NRTL":
+                c1_, c2_ = comps
+                with st.form("adv_nrtl_" + fk):
+                    st.markdown("tau_ij = a_ij + b_ij / T + e_ij ln T   (T in K), G_ij = exp(-alpha tau_ij). "
+                                "**If your source gives tau = A / T, type A in the b box and leave a and e at 0.**")
+                    alpha = st.number_input("alpha (non-randomness parameter)", format="%.4g", step=0.05,
+                                            value=pair_val("nrtl_alpha", c1_, c2_, True) if pair_val("nrtl_alpha", c1_, c2_, True) is not None else 0.30)
+                    vals = {}
+                    for tag, i_, j_ in (("12", c1_, c2_), ("21", c2_, c1_)):
+                        cols = st.columns([1.3, 1, 1, 1])
+                        cols[0].markdown("**tau_%s**  (%s -> %s)" % (tag, i_, j_))
+                        for col, k_, lab in zip(cols[1:], ("a", "b", "e"), ("a_%s" % tag, "b_%s  (K)" % tag, "e_%s" % tag)):
+                            cur = pair_val("nrtl_" + k_, i_, j_)
+                            vals[(i_, j_, k_)] = col.number_input(lab, value=cur if cur is not None else 0.0, format="%.6g", step=0.1,
+                                                                   key="adv_n_%s_%s_%s" % (k_, tag, fk))
+                    k1, k2 = st.columns([1, 2])
+                    kind = k1.selectbox("kind of data", KINDS, index=KINDS.index("experimental"), key="adv_nk_" + fk)
+                    src = k2.text_input("source (optional)", key="adv_ns_" + fk, placeholder="e.g. Arce et al. 1997")
+                    go = st.form_submit_button("Apply to the pair-parameter table")
+                if go:
+                    drop = {"nrtl_a", "nrtl_b", "nrtl_e", "nrtl_alpha"}
+                    case["pairs"] = [p_ for p_ in case["pairs"] if not (p_["key"] in drop and {p_["i"], p_["j"]} == {c1_, c2_})]
+                    def add(i_, j_, key_, v_):
+                        case["pairs"].append({"i": i_, "j": j_, "key": key_, "value": float(v_), "kind": kind,
+                                              "source": src or "typed in the Advanced section"})
+                    add(c1_, c2_, "nrtl_alpha", alpha)
+                    for i_, j_ in ((c1_, c2_), (c2_, c1_)):
+                        given = [(k_, vals[(i_, j_, k_)]) for k_ in ("a", "b", "e") if vals[(i_, j_, k_)] != 0]
+                        for k_, v_ in (given or [("b", 0.0)]):
+                            add(i_, j_, "nrtl_" + k_, v_)
+                    mixture["model"] = "NRTL"
+                    ss.v += 1
+                    st.rerun()
+                nrtl_slot, nrtl_pair = st.empty(), (c1_, c2_)        # filled after the pair table, so it is never one edit behind
+            elif model == "Margules":
+                c1_, c2_ = comps
+                with st.form("adv_marg_" + fk):
+                    st.markdown("G^E / RT = x_1 x_2 (A + B / T + D ln T)   (T in K). With B = D = 0 it is the one-parameter Margules form.")
+                    cols = st.columns(3)
+                    mv = {}
+                    for col, k_, lab in zip(cols, ("A", "B", "D"), ("A", "B  (K)", "D")):
+                        cur = pair_val("marg_" + k_, c1_, c2_, True)
+                        mv[k_] = col.number_input(lab, value=cur if cur is not None else 0.0, format="%.6g", step=0.1, key="adv_m_%s_%s" % (k_, fk))
+                    k1, k2 = st.columns([1, 2])
+                    kind = k1.selectbox("kind of data", KINDS, index=KINDS.index("experimental"), key="adv_mk_" + fk)
+                    src = k2.text_input("source (optional)", key="adv_ms_" + fk, placeholder="e.g. fitted to H^E data of ...")
+                    go = st.form_submit_button("Apply to the pair-parameter table")
+                if go:
+                    drop = {"marg_A", "marg_B", "marg_D"}
+                    case["pairs"] = [p_ for p_ in case["pairs"] if not (p_["key"] in drop and {p_["i"], p_["j"]} == {c1_, c2_})]
+                    for k_ in ("A", "B", "D"):
+                        if mv[k_] != 0 or k_ == "D":               # D is always written: the model needs it
+                            case["pairs"].append({"i": c1_, "j": c2_, "key": "marg_" + k_, "value": float(mv[k_]), "kind": kind,
+                                                  "source": src or "typed in the Advanced section"})
+                    mixture["model"] = "Margules"
+                    ss.v += 1
+                    st.rerun()
+            else:
+                pairs_ = [(comps[a], comps[b]) for a in range(len(comps)) for b in range(a + 1, len(comps))]
+                if not pairs_:
+                    st.info("A mixture needs at least two components for k_ij.")
+                else:
+                    with st.form("adv_kij_" + fk):
+                        st.markdown("Binary interaction parameter k_ij of the Peng-Robinson mixing rule (gas mixtures). "
+                                    "Typical values are small (0 to 0.1); 0 means no interaction correction.")
+                        kv = {}
+                        cols = st.columns(min(3, len(pairs_)))
+                        for n_, (i_, j_) in enumerate(pairs_):
+                            cur = pair_val("kij", i_, j_, True)
+                            kv[(i_, j_)] = cols[n_ % len(cols)].number_input("k_ij  (%s, %s)" % (i_, j_), value=cur if cur is not None else 0.0,
+                                                                              format="%.5g", step=0.01, key="adv_k_%d_%s" % (n_, fk))
+                        k1, k2 = st.columns([1, 2])
+                        kind = k1.selectbox("kind of data", KINDS, index=KINDS.index("experimental"), key="adv_kk_" + fk)
+                        src = k2.text_input("source (optional)", key="adv_ks_" + fk)
+                        go = st.form_submit_button("Apply to the pair-parameter table")
+                    if go:
+                        case["pairs"] = [p_ for p_ in case["pairs"] if not (p_["key"] == "kij" and (p_["i"], p_["j"]) in
+                                                                          set(pairs_) | {(j_, i_) for i_, j_ in pairs_})]
+                        for (i_, j_), v_ in kv.items():
+                            case["pairs"].append({"i": i_, "j": j_, "key": "kij", "value": float(v_), "kind": kind,
+                                                  "source": src or "typed in the Advanced section"})
+                        ss.v += 1
+                        st.rerun()
+
     if case["mixtures"] or case["pairs"]:
-        with st.expander("Pair parameters (NRTL, Margules, k_ij)", expanded=bool(case["pairs"])):
+        with st.expander("All pair parameters (table view: NRTL, Margules, k_ij)", expanded=bool(case["pairs"])):
             st.markdown("<span class='small'>NRTL: tau_ij = nrtl_a + nrtl_b/T + nrtl_e ln T for the ordered pair i -> j, "
                         "plus nrtl_alpha. Margules: marg_A, marg_B, marg_D. Peng-Robinson: kij (blank = 0).</span>",
                         unsafe_allow_html=True)
@@ -252,6 +400,18 @@ with t1:
                                                 "kind": st.column_config.SelectboxColumn("kind", options=KINDS),
                                                 "source": st.column_config.TextColumn("source", width="large")})
             case["pairs"] = [{k: clean(v) for k, v in r.items()} for r in pdf.to_dict("records") if clean(r.get("key"))]
+    if nrtl_slot is not None:
+        c1_, c2_ = nrtl_pair
+        a_ok = pair_val("nrtl_alpha", c1_, c2_, True)
+        if a_ok is not None:
+            par = {"alpha": a_ok}
+            for tag, i_, j_ in (("12", c1_, c2_), ("21", c2_, c1_)):
+                for k_ in ("a", "b", "e"):
+                    par[k_ + tag] = pair_val("nrtl_" + k_, i_, j_) or 0.0
+            sm = mx.nrtl_summary(par, case["T"])
+            nrtl_slot.caption("With the table values at T = %.2f K:  tau_12 = %.5g,  tau_21 = %.5g,  G_12 = %.5g,  G_21 = %.5g.  "
+                              "At infinite dilution the activity coefficients are  gamma_%s = %.4g  and  gamma_%s = %.4g."
+                              % (case["T"], sm["tau12"], sm["tau21"], sm["G12"], sm["G21"], c1_, sm["gamma1_inf"], c2_, sm["gamma2_inf"]))
 
     st.markdown("#### Sweep (optional)")
     sw = case.get("sweep") or {}
@@ -523,9 +683,18 @@ with t5:
     topic = theory.TOPICS[titles.index(pick_t)]
     with right:
         st.markdown("### " + topic["title"])
-        st.markdown(topic["text"])
+        st.markdown(md(topic["text"]))
+        if topic.get("diagram"):
+            st.graphviz_chart(topic["diagram"])
         for eq, cap in topic["equations"]:
             st.latex(eq)
             st.caption(cap)
-        st.info("**Holds when:** " + topic["holds"])
+        if topic.get("gives"):
+            st.markdown(md("**In and out.** " + topic["gives"]))
+        if topic.get("holds"):
+            st.info("**Holds when:** " + topic["holds"])
+        if topic.get("where"):
+            st.success("**Where in the app:** " + topic["where"])
+        if topic.get("next"):
+            st.markdown("**Next:** " + topic["next"])
         st.caption("In the code: " + topic["code"])

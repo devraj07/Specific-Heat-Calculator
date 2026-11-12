@@ -53,6 +53,17 @@ def ge_nrtl(x1, T, p):
     return R * T * x1 * x2 * (t21 * G21 / (x1 + x2 * G21) + t12 * G12 / (x2 + x1 * G12))
 
 
+def nrtl_summary(p, T):
+    """Numbers shown next to the NRTL inputs: tau, G and the activity coefficients at infinite
+    dilution (ln gamma1_inf = tau21 + tau12 G12, ln gamma2_inf = tau12 + tau21 G21).
+    p has a12, b12, e12, a21, b21, e21, alpha. Display helper only; the engine does not use it."""
+    t12 = nrtl_tau(p["a12"], p["b12"], p["e12"], T)
+    t21 = nrtl_tau(p["a21"], p["b21"], p["e21"], T)
+    G12, G21 = math.exp(-p["alpha"] * t12), math.exp(-p["alpha"] * t21)
+    return {"tau12": t12, "tau21": t21, "G12": G12, "G21": G21,
+            "gamma1_inf": math.exp(t21 + t12 * G12), "gamma2_inf": math.exp(t12 + t21 * G21)}
+
+
 def he_from_ge(ge, T, h=FD_STEP):
     """Eq. 14: H^E = G^E - T dG^E/dT."""
     return ge(T) - T * (ge(T + h) - ge(T - h)) / (2.0 * h)

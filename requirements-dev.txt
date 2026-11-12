@@ -1,0 +1,5 @@
+# For running the tests and rebuilding the database:   pip install -r requirements-dev.txt
+-r requirements.txt
+pytest
+sympy
+CoolProp                 # validation suite (validate/) and tools/build_database.py

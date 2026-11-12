@@ -21,7 +21,7 @@ from .latex import num, q
 from .properties import canon, new_context, find, use, warn, note, assume, weakest, range_text
 from .units import to_si, clean_unit, allowed_units
 
-VERSION = "2.0"
+VERSION = "3.0"
 ROUTE_NAMES = {"yours": "your value", "your curve": "your curve (interpolated)", "database": "database value",
                "database curve": "database curve (interpolated)", "derived": "derived"}
 

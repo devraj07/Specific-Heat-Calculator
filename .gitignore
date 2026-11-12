@@ -1,0 +1,22 @@
+# virtual environments: never upload these (each person creates their own)
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# editors and systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# local files made while using the app
+cpcalc_case*.xlsx
+my_case*.xlsx
+sheet.html
+.streamlit/secrets.toml

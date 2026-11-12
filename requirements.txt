@@ -1,8 +1,9 @@
-numpy
-scipy
-openpyxl
-streamlit
-pandas
-thermo
-sympy
-CoolProp
+# cpcalc: everything needed to run the web app and the command line.
+# Install with:   pip install -r requirements.txt
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+openpyxl>=3.1
+streamlit>=1.51          # the interface uses width="stretch", added in 1.51
+thermo>=0.6              # optional: "Find in thermo" for compounds that are not built in.
+                         # If it fails to install, delete this line: everything else still works.
